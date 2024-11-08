@@ -1,0 +1,4 @@
+"[{""description"": ""Hat"", ""amount"": 100000.0, ""time_horizon"": 2.8}]",Medium,5000.0
+"[{""description"": ""Camaro"", ""amount"": 10000.0, ""time_horizon"": 2.0}]",High,4000.0
+"[{""description"": ""Car"", ""amount"": 20000.0, ""time_horizon"": 3.0}]",Medium,2000.0
+"[{""description"": ""Car"", ""amount"": 20000.0, ""time_horizon"": 3.0}]",Medium,1000.0
