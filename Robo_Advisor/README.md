@@ -1,5 +1,3 @@
-Certainly, I’ll add a placeholder section specifically for the screenshots and ensure it aligns with Risky’s function as a risk management tool for asset acquisition. Here’s the updated version with placeholders ready for you to add content later.
-
 # ![Risky Logo](image.png)
 
 # Risky: A Financial Tool for Asset Acquisition
