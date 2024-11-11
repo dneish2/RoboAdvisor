@@ -2,3 +2,7 @@ streamlit
 pandas
 plotly
 pyttsx3
+openai
+dotenv
+yfinance
+reticker

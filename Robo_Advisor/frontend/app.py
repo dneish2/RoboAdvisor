@@ -1,9 +1,10 @@
+# frontend/app.py
+
 import sys
 import os
 import re
 import json  # For JSON parsing
 import logging
-from datetime import datetime, timedelta
 
 # Add the parent directory to sys.path to locate the backend package
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -50,7 +51,7 @@ nim_client = OpenAI(
 
 def is_valid_ticker(ticker):
     """Validate ticker symbols using regex."""
-    return re.match("^[A-Za-z]{1,5}$", ticker) is not None
+    return re.match("^[A-Za-z]{1,5}(\.[A-Za-z]{1,2})?$", ticker) is not None
 
 def extract_tickers(text):
     """Extract tickers from user input text."""
@@ -154,12 +155,12 @@ def gather_requirements():
         return user_profile
     return None
 
-def display_portfolio(user_profile, nim_client):
+def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
     if not user_profile:
         st.error("User profile is missing.")
         return
 
-    # Validate 'goals' is a list and handle JSON parsing if needed
+    # Validate and parse 'goals'
     goals = user_profile.get('goals')
     if isinstance(goals, str):
         try:
@@ -173,16 +174,43 @@ def display_portfolio(user_profile, nim_client):
         except ValueError as ve:
             st.error(str(ve))
             return
-    elif not isinstance(goals, list):
-        st.error(f"'goals' should be a list, got {type(goals)}")
+
+    # Load the investment thesis
+    investment_thesis = data_fetcher.load_investment_thesis()
+    if investment_thesis.empty:
+        st.error("Investment thesis could not be loaded.")
         return
 
-    # Initialize PortfolioOptimizer with the validated user_profile
-    optimizer = PortfolioOptimizer(user_profile)
+    # Initialize PortfolioOptimizer with user profile, investment thesis, and max_holdings
+    try:
+        optimizer = PortfolioOptimizer(user_profile, investment_thesis, max_holdings=max_holdings)
+    except ValueError as ve:
+        st.error(f"Portfolio optimization initialization failed: {ve}")
+        return
+    except KeyError as ke:
+        st.error(f"Portfolio optimization initialization failed: {ke}")
+        return
+    except Exception as e:
+        st.error(f"An unexpected error occurred during initialization: {e}")
+        return
+
+    # Optimize the portfolio
     try:
         portfolio, expected_return, simulation_results = optimizer.optimize()
+        # Inform the user about the limited holdings
+        if len(optimizer.assets) < max_holdings:
+            st.warning(f"Only {len(optimizer.assets)} assets were available and included in the portfolio based on your risk tolerance.")
+        # Display the portfolio, expected return, and simulation results
+        st.write("Optimized Portfolio:")
+        st.dataframe(portfolio)
+        st.write(f"Expected Return: {expected_return * 100:.2f}%")
+        st.write("Simulation Results:")
+        st.write(simulation_results)
+    except ValueError as ve:
+        st.error(f"Portfolio optimization failed: {ve}")
+        return
     except Exception as e:
-        st.error(f"Portfolio optimization failed: {e}")
+        st.error(f"An unexpected error occurred during optimization: {e}")
         return
 
     # Convert portfolio to DataFrame if it's not already
@@ -371,7 +399,7 @@ def query_llama():
                     st.error(f"An error occurred while processing your query: {e}")
 
 def visualize_options(data_fetcher):
-    st.header("Options Contracts Visualization")
+    st.header("Instrument Scanner")
     ticker = st.text_input("Enter Stock Ticker (e.g., AAPL):")
     period = st.selectbox("Select Period", ["1 Week", "1 Month", "3 Months", "6 Months"])
 
@@ -395,7 +423,7 @@ def visualize_options(data_fetcher):
                     st.error(f"An error occurred while fetching options data: {e}")
 
 def visualize_history(data_fetcher, nim_client):
-    st.header("Option Contract History Visualization")
+    st.header("Instrument History")
 
     # Get ticker input
     ticker = st.text_input("Enter Stock Ticker (e.g., AAPL):")
@@ -514,7 +542,7 @@ def visualize_history(data_fetcher, nim_client):
                             f"- **Overview of Highs and Lows:** Summarize the highest and lowest option prices during the contract's timeframe.\n"
                             f"- **Associated Risks:** Outline the main risks involved with this strategy.\n\n"
                             f"Use simple language and avoid technical jargon. Format your response using markdown with appropriate headers and bullet points for clarity.")
-                            
+
                             # Button to get strategic advice based on history
                             if st.button("Get Strategic Advice Based on History"):
                                 # Call NVIDIA NIM API to get strategic advice
@@ -544,11 +572,9 @@ def visualize_history(data_fetcher, nim_client):
                     else:
                         st.warning("No historical data available for the selected option type.")
                 else:
-                    st.warning("No data available for the selected strike price.")
+                    st.warning("No strike prices available for the selected expiration date.")
             else:
-                st.warning("No strike prices available for the selected expiration date.")
-        else:
-            st.warning("No expiration dates available in the selected period.")
+                st.warning("No expiration dates available in the selected period.")
 
 def debug_environment():
     st.header("🛠️ Debugging Environment")
@@ -573,7 +599,7 @@ def main():
     st.sidebar.title("Robo-Advisor")
     app_mode = st.sidebar.selectbox(
         "Choose the app mode",
-        ["Gather Requirements", "View Portfolio", "Chat", "Appreciation Visualization", "Visualize History"]
+        ["Gather Requirements", "View Portfolio", "Chat", "Instrument Scanner", "Instrument History"]
     )
 
     if app_mode == "Gather Requirements":
@@ -605,14 +631,14 @@ def main():
                 'available_investment': float(last_profile['available_investment'])
             }
             st.write("Loaded User Profile:", user_profile)
-            display_portfolio(user_profile, nim_client)  # Pass nim_client here
+            display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4)  # Set max_holdings here
         except Exception as e:
             st.error(f"Error loading user data: {e}")
     elif app_mode == "Chat":
         query_llama()
-    elif app_mode == "Appreciation Visualization":
+    elif app_mode == "Instrument Scanner":
         visualize_options(data_fetcher)  # Removed nim_client
-    elif app_mode == "Visualize History":
+    elif app_mode == "Instrument History":
         visualize_history(data_fetcher, nim_client)  # Pass data_fetcher and nim_client to visualize_history
     else:
         st.error("Invalid app mode selected.")

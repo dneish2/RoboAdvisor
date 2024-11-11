@@ -12,6 +12,18 @@ class DataFetcher:
     def __init__(self):
         pass
 
+    def load_investment_thesis(self, filepath='data/investment_thesis.csv'):
+        """Load investment thesis from a CSV file."""
+        try:
+            thesis_df = pd.read_csv(filepath)
+            if thesis_df.empty:
+                logger.warning("Investment thesis file is empty.")
+                return pd.DataFrame()
+            return thesis_df
+        except Exception as e:
+            logger.error(f"Error loading investment thesis: {e}")
+            return pd.DataFrame()
+
     def get_historical_performance(self, assets, time_horizon='5y'):
         """Fetch historical data for the given assets based on the specified time horizon."""
         logger.info(f"Fetching historical performance data for assets: {assets} with time horizon: {time_horizon}")
