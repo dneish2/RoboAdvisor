@@ -6,9 +6,37 @@ This Robo-Advisor app provides insights and recommendations for investment portf
 
 ---
 
+### Options 101: Common Questions
+
+#### **1. What is an options contract?**
+
+An options contract is a financial instrument that gives the buyer the right (but not the obligation) to buy or sell an asset (such as a stock) at a specific price within a defined period. There are two types:
+   - **Call Option**: The right to buy a stock at a set price before a specific date.
+   - **Put Option**: The right to sell a stock at a set price before a specific date.
+
+#### **2. Why do investors use options?**
+
+Options can be used for several strategies, including:
+   - **Hedging**: Protecting a portfolio against losses by using options as a form of insurance.
+   - **Speculation**: Making bets on the direction of stock prices with potentially high returns (and high risk).
+   - **Income Generation**: Selling options (like covered calls) to generate additional income on assets already owned.
+
+#### **3. What are the main risks of options trading?**
+
+Options trading can be risky, as the potential for loss can be substantial, especially when engaging in complex strategies or if the stock moves against the intended direction. Unlike buying stock, options can expire worthless, resulting in a total loss of the premium paid.
+
+#### **4. How can the Robo-Advisor help with options trading?**
+
+This app assists users by:
+   - Providing data visualization on options performance to aid in strategic decisions.
+   - Offering insights based on historical data to guide entry and exit points.
+   - Simplifying complex options data into actionable recommendations aligned with user goals and risk tolerance.
+
+---
+
 ### Frequently Asked Questions
 
-#### **1. What is the purpose of this Robo-Advisor app?**
+#### **5. What is the purpose of this Robo-Advisor app?**
 
 This application helps users build an investment portfolio aligned with their financial goals, risk tolerance, and available funds. It offers tools to:
 - Set and track financial goals.
@@ -18,7 +46,7 @@ This application helps users build an investment portfolio aligned with their fi
 
 ---
 
-#### **2. What are the main features of this app?**
+#### **6. What are the main features of this app?**
 
 The Robo-Advisor includes these main sections:
 - **Gather Requirements**: Define your financial goals, risk tolerance, and investment amount.
@@ -29,7 +57,7 @@ The Robo-Advisor includes these main sections:
 
 ---
 
-#### **3. What do I need to get started with the Robo-Advisor?**
+#### **7. What do I need to get started with the Robo-Advisor?**
 
 Simply:
 1. Define your financial goals (e.g., retirement savings or buying a house).
@@ -39,7 +67,7 @@ The app will then guide you through building a portfolio or analyzing financial 
 
 ---
 
-#### **4. How do I optimize my portfolio in the app?**
+#### **8. How do I optimize my portfolio in the app?**
 
 1. Go to **View Portfolio**.
 2. Enter your profile details, including financial goals and investment amount.
@@ -47,7 +75,7 @@ The app will then guide you through building a portfolio or analyzing financial 
 
 ---
 
-#### **5. Can I view and analyze individual stock performance?**
+#### **9. Can I view and analyze individual stock performance?**
 
 Yes, in the **Chat** section, you can:
 - Ask questions about company reports.
@@ -55,7 +83,7 @@ Yes, in the **Chat** section, you can:
 
 ---
 
-#### **6. How does the app help with options trading?**
+#### **10. How does the app help with options trading?**
 
 In **Instrument Scanner**, you can:
 - Enter a stock ticker to see available options contracts.
@@ -64,7 +92,7 @@ Additionally, **Instrument History** allows you to review historical data of opt
 
 ---
 
-#### **7. What kind of strategic advice does the app provide?**
+#### **11. What kind of strategic advice does the app provide?**
 
 For options trading, the app can offer advice based on historical data:
 - Suggested entry and exit points.
@@ -73,19 +101,19 @@ For options trading, the app can offer advice based on historical data:
 
 ---
 
-#### **8. Can I hear my portfolio read aloud?**
+#### **12. Can I hear my portfolio read aloud?**
 
 Yes, once a portfolio is generated, you can click **Read Portfolio Allocation** to have the app read out asset allocations via Text-to-Speech.
 
 ---
 
-#### **9. How accurate are the predictions and analyses?**
+#### **13. How accurate are the predictions and analyses?**
 
 While the app uses simulations and historical data to make informed predictions, investment outcomes are always uncertain. It is essential to treat the insights as guidance rather than guaranteed results.
 
 ---
 
-#### **10. How secure is my data in this application?**
+#### **14. How secure is my data in this application?**
 
 User data is saved locally for processing purposes only. Environment variables utilize 2 API KEYS.
 1. Nvidia NIM API KEY
@@ -96,4 +124,3 @@ User data is saved locally for processing purposes only. Environment variables u
 ### Note: Consult a Financial Advisor
 
 Please remember that this app is a tool to aid decision-making, but it is not a substitute for professional financial advice. Always consider consulting a certified advisor before making significant investment decisions.
-
