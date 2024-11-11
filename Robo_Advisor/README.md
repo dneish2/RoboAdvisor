@@ -1,6 +1,8 @@
 # ![Risky Logo](image.png)
 
-# Risky: A Financial Tool for Asset Acquisition
+[Watch the Demo Video](https://www.youtube.com/watch?v=ZJJTWE1hNQE&t=0s)
+
+# Risky: A Risk Management Tool for Asset Acquisition
 
 Welcome to **Risky** – the open-source robo-advisor built to support risk management and strategic asset acquisition. With Risky, you gain access to sophisticated portfolio recommendations tailored to your financial goals, risk tolerance, and investment timeline. Driven by cutting-edge language models and our proprietary Investment Thesis, Risky is your intelligent guide to optimized, data-backed asset management.
 
@@ -44,13 +46,15 @@ At the heart of Risky is its **Investment Thesis** – a curated knowledge base 
 
 ## Why Risky?
 
-Legacy tools like **Option Profit Calculator** or **Optionista** are often static, requiring extensive manual data entry for single-point calculations. These tools can fall short in providing actionable guidance for long-term asset acquisition.
+Legacy tools like **Option Profit Calculator** or **Optionistics** are often static, requiring extensive manual data entry for single-point calculations. These tools can fall short in providing actionable guidance for long-term asset acquisition.
 
 **Risky** changes the game by integrating an **Investment Thesis** that functions as a dynamic advisor. This distilled knowledge repository guides asset selection and acquisition based on historical data and projected performance, offering strategic insights that legacy tools can’t match.
 
 ---
 
 ## Architecture
+
+# ![Risky Logo](Risky.drawio.png)
 
 Risky is built with a modular, scalable structure, featuring clear separations between the frontend and backend for ease of customization and future upgrades.
 
@@ -88,21 +92,23 @@ To get started with Risky, follow these steps.
 
    ```sh
    git clone <repository-url>
-   cd Risky
+   cd Robo_Advisor
 
-	2.	Set Up Virtual Environment
+2.	Set Up Virtual Environment
 
-python3 -m venv venv
-source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-
-
-	3.	Install Dependencies
-
-pip install -r backend/requirements.txt
-pip install -r frontend/requirements.txt
+	python3 -m venv venv
+	source venv/bin/activate  # On Windows use `venv\Scripts\activate`
 
 
-	4.	Configure Environment Variables
+3.	Install Dependencies
+
+		pip install -r backend/requirements.txt
+		pip install -r frontend/requirements.txt
+
+
+4.	Configure Environment Variables
+
+	```sh
 	•	Create a .env file in the root directory and add your OpenAI and NVIDIA NIM API keys.
 
 Usage
@@ -135,12 +141,14 @@ streamlit run frontend/app.py
 
 > *Here, historical options performance data is visualized, helping users understand returns over different periods for informed decision-making.*
 
-FAQ
+![Chat with Documents](Ask-About-Companies.png)
 
-For additional information, troubleshooting tips, and frequently asked questions, see the FAQ.
+> *This image illustrates the "Chat with Documents" feature, enabling users to query financial data and receive insights tailored to their acquisition strategy, facilitating informed decision-making.*
+
+[FAQ](docs/faq.md)
+
+For additional information, troubleshooting tips, and frequently asked questions, see the [FAQ](docs/faq.md).
 
 License
 
 Risky is licensed under the GNU General Public License v3.0.
-
-	Discover the advantage of Risky – where distilled financial insights help you manage risk and make strategic acquisitions with confidence.

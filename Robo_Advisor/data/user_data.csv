@@ -1,3 +1,8 @@
 goals,risk_tolerance,available_investment
 "[{""description"": ""Chevy Camaro"", ""amount"": 40000.00000000001, ""time_horizon"": 5.0}]",Medium,3000.0
 "[{""description"": ""Racecar"", ""amount"": 40000.0, ""time_horizon"": 5.0}]",Low,2000.0
+"[{""description"": ""Nissan Altima"", ""amount"": 20000.0, ""time_horizon"": 5.0}]",High,4000.0
+"[{""description"": ""Robot"", ""amount"": 30000.0, ""time_horizon"": 2.0}]",Medium,1500.0
+"[{""description"": ""Datacenter"", ""amount"": 25000.0, ""time_horizon"": 0.8}]",Low,2200.0
+"[{""description"": ""Boat"", ""amount"": 10000.000000000002, ""time_horizon"": 5.0}]",Medium,2000.0
+"[{""description"": ""House"", ""amount"": 10000.0, ""time_horizon"": 5.0}]",High,3000.0

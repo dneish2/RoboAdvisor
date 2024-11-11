@@ -1,41 +1,54 @@
 Ticker,Theme,RiskLevel
-AAPL,Technology,High
-MSFT,Technology,High
-ULTA,Beauty,Medium
-LULU,Beauty,Medium
-LLY,Health,Low
-BRK.B,Health,Low
-HCA,Health,Medium
-SYK,Health,Medium
-ISRG,Health,Medium
-TSM,Chips,Medium
-AVGO,Chips,Medium
-NVDA,Chips,Medium
+AAPL,Technology,Medium
+MSFT,Technology,Medium
+NVDA,Chips,High
+AMD,Chips,High
 KLAC,Chips,Medium
-V,Finance,Low
-MA,Finance,Low
-AXP,Finance,Low
-SQ,Finance,Medium
-INTU,Finance,Medium
-JPM,Finance,Low
-GS,Finance,Low
-MS,Finance,Low
+AVGO,Chips,Medium
 CRWD,Cyber,High
-PANW,Cyber,High
+PANW,Cyber,Medium
 ZS,Cyber,High
 TSLA,EV,High
 RIVN,EV,High
 LCID,EV,High
+LLY,Health,Low
+HCA,Health,Low
+SYK,Health,Medium
+ISRG,Health,Medium
+DIS,Entertainment,Low
+NFLX,Streaming,Medium
+CMCSA,Communications,Low
+V,Finance,Low
+MA,Finance,Low
+AXP,Finance,Medium
+SQ,Finance,High
+INTU,Finance,Medium
+JPM,Finance,Low
+GS,Finance,Medium
 PEP,Consumer,Low
 KO,Consumer,Low
 PG,Consumer,Low
 TGT,Groceries,Low
 WMT,Groceries,Low
-COST,Groceries,Low
+COST,Groceries,Medium
 SHAK,Fast Food,Medium
 CMG,Fast Food,Medium
 HD,Handyman,Low
 LOW,Handyman,Low
-DIS,Streaming,Low
-NFLX,Streaming,Medium
-CMCSA,Streaming,Low
+SPY,General Market,Medium
+VOO,General Market,Low
+QQQ,Technology,Medium
+VGT,Technology,Medium
+XLV,Health,Low
+VHT,Health,Medium
+XLF,Finance,Medium
+VFH,Finance,Medium
+XLY,Consumer Discretionary,Medium
+VCR,Consumer Discretionary,Medium
+XLC,Communications,Medium
+ARKK,Innovation,High
+ARKG,Genomics,High
+XLE,Energy,Low
+VDE,Energy,Medium
+XLRE,Real Estate,Medium
+VNQ,Real Estate,Low

@@ -114,7 +114,9 @@ class PortfolioOptimizer:
             return portfolio, expected_return, simulation_results
 
         num_assets = len(self.assets)
-        constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+        constraints = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},  
+        {'type': 'ineq', 'fun': lambda x: 0.33 - x})     # Each allocation must be <= 20%)
         bounds = tuple((0, 1) for _ in range(num_assets))
         initial_weights = num_assets * [1.0 / num_assets]
 

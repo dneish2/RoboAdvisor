@@ -201,11 +201,9 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
         if len(optimizer.assets) < max_holdings:
             st.warning(f"Only {len(optimizer.assets)} assets were available and included in the portfolio based on your risk tolerance.")
         # Display the portfolio, expected return, and simulation results
+        # Display only the portfolio, hiding other data
         st.write("Optimized Portfolio:")
         st.dataframe(portfolio)
-        st.write(f"Expected Return: {expected_return * 100:.2f}%")
-        st.write("Simulation Results:")
-        st.write(simulation_results)
     except ValueError as ve:
         st.error(f"Portfolio optimization failed: {ve}")
         return
@@ -306,8 +304,6 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
                         "\n\n---\n\n"  # Add a markdown horizontal line before disclaimer
                         "### Disclaimer\n\n"
                         "Please remember past performance is NOT indicative of future results, but we can use them as a benchmark/scale for the future.\n\n"
-                        "Please note that this summary is for informational purposes only and should not be considered as investment advice. "
-                        "It is essential to consult with a financial advisor or conduct your own research before making any investment decisions."
                     )
 
                     # Combine description and disclaimer, then render as markdown
@@ -538,7 +534,6 @@ def visualize_history(data_fetcher, nim_client):
                             f"Please provide a concise (no more than 300 words), beginner-friendly strategy that includes:\n"
                             f"- **Potential Entry Points:** When and why to enter the trade.\n"
                             f"- **Target Exit Prices:** Clear price levels to sell the option for profits.\n"
-                            f"- **Financial Implications Per Contract:** Detailed explanation of potential profit and loss per contract, including specific monetary figures based on different scenarios.\n"
                             f"- **Overview of Highs and Lows:** Summarize the highest and lowest option prices during the contract's timeframe.\n"
                             f"- **Associated Risks:** Outline the main risks involved with this strategy.\n\n"
                             f"Use simple language and avoid technical jargon. Format your response using markdown with appropriate headers and bullet points for clarity.")
