@@ -145,9 +145,9 @@ streamlit run frontend/app.py
 
 > *This image illustrates the "Chat with Documents" feature, enabling users to query financial data and receive insights tailored to their acquisition strategy, facilitating informed decision-making.*
 
-[FAQ](docs/faq.md)
+[FAQ](Robo_Advisor/docs/faq.md)
 
-For additional information, troubleshooting tips, and frequently asked questions, see the [FAQ](docs/faq.md).
+For additional information, troubleshooting tips, and frequently asked questions, see the [FAQ](Robo_Advisor/docs/faq.md).
 
 License
 
