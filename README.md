@@ -63,6 +63,12 @@ Risky is built with a modular, scalable structure, featuring clear separations b
 - **NVIDIA NIM 405B LLM Instruct Model**: Powers advanced insights, supporting strategic decision-making.
 - **LLama Index**: Facilitates efficient document retrieval and analysis, enhancing interactive exploration of financial information.
 
+## Hardware Requirements
+
+To effectively run Risky, especially leveraging the NVIDIA NIM 405B LLM and LLama Index:
+	•	GPU: NVIDIA A100 or H100 with a minimum of 40 GB VRAM is required for handling LLM-based inference and data-intensive tasks.
+	•	Memory: At least 64 GB RAM is recommended to ensure smooth performance during portfolio optimization, options analysis, and interactive data exploration.
+ 
 ### Core Components
 
 - **Investment Thesis (investment_thesis.csv)**: Acts as the “playbook” for financial decisions, driving informed asset selection with historical and projected performance insights.
