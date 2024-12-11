@@ -46,10 +46,14 @@ At the heart of Risky is its **Investment Thesis** – a curated knowledge base 
 
 ## Why Risky?
 
-Legacy tools like **Option Profit Calculator** or **Optionistics** are often static, requiring extensive manual data entry for single-point calculations. These tools can fall short in providing actionable guidance for long-term asset acquisition.
+Why Risky?
 
-**Risky** changes the game by integrating an **Investment Thesis** that functions as a dynamic advisor. This distilled knowledge repository guides asset selection and acquisition based on historical data and projected performance, offering strategic insights that legacy tools can’t match.
+Legacy tools like Option Profit Calculator, Finviz, and Optionistics serve specific purposes but fall short in today’s fast-paced financial landscape. These platforms often rely on outdated, static workflows, demanding manual input and offering little in the way of personalized or dynamic insights.
 
+Risky changes the game by offering:
+	•	Tailored Asset Recommendations: Guided by its Investment Thesis, Risky delivers insights customized to your financial goals and risk tolerance.
+	•	Integrated Data Access: Unlike static platforms, Risky allows you to query company financial reports, historical options data, and market trends all in one place.
+	•	Portfolio Optimization: Effortlessly build and adjust portfolios aligned with your acquisition strategy and timeline.
 ---
 
 ## Architecture
