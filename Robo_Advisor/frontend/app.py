@@ -399,6 +399,9 @@ def visualize_options(data_fetcher):
     ticker = st.text_input("Enter Stock Ticker (e.g., AAPL):")
     period = st.selectbox("Select Period", ["1 Week", "1 Month", "3 Months", "6 Months"])
 
+    options_ready = st.session_state.get("options_data_ready", False)
+    open_sim = st.button("Open OptionSim Pro", disabled=not options_ready)
+
     if st.button("Fetch Options Data"):
         if ticker.strip() == "":
             st.warning("Please enter a valid stock ticker.")
@@ -409,14 +412,28 @@ def visualize_options(data_fetcher):
                 try:
                     options_data = data_fetcher.get_options_data(ticker.upper(), period)
                     if not options_data.empty:
+                        st.session_state["options_data"] = options_data
+                        st.session_state["options_data_ready"] = True
+                        st.session_state["options_ticker"] = ticker.upper()
+                        st.session_state["options_period"] = period
+
                         # Instantiate OptionsVisualizer for Appreciation Visualization
                         visualizer = OptionsVisualizer(options_data, time_frame=period)
                         fig = visualizer.plot_options_chain()
                         st.plotly_chart(fig)
+                        st.success("Options data fetched. Launch OptionSim Pro to explore contracts interactively.")
                     else:
+                        st.session_state["options_data_ready"] = False
+                        st.session_state["options_data"] = None
                         st.warning("No options data found for the given ticker and period.")
                 except Exception as e:
+                    st.session_state["options_data_ready"] = False
+                    st.session_state["options_data"] = None
                     st.error(f"An error occurred while fetching options data: {e}")
+
+    if open_sim:
+        st.session_state["app_mode"] = "OptionSim Pro"
+        st.experimental_rerun()
 
 def visualize_history(data_fetcher, nim_client):
     st.header("Instrument History")
@@ -594,7 +611,15 @@ def main():
     st.sidebar.title("Robo-Advisor")
     app_mode = st.sidebar.selectbox(
         "Choose the app mode",
-        ["Gather Requirements", "View Portfolio", "Chat", "Instrument Scanner", "Instrument History"]
+        [
+            "Gather Requirements",
+            "View Portfolio",
+            "Chat",
+            "Instrument Scanner",
+            "Instrument History",
+            "OptionSim Pro",
+        ],
+        key="app_mode",
     )
 
     if app_mode == "Gather Requirements":
@@ -635,6 +660,13 @@ def main():
         visualize_options(data_fetcher)  # Removed nim_client
     elif app_mode == "Instrument History":
         visualize_history(data_fetcher, nim_client)  # Pass data_fetcher and nim_client to visualize_history
+    elif app_mode == "OptionSim Pro":
+        try:
+            from frontend.options_sim import render_option_sim
+        except Exception:
+            from options_sim import render_option_sim
+
+        render_option_sim(data_fetcher)
     else:
         st.error("Invalid app mode selected.")
 
