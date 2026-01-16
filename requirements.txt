@@ -6,3 +6,5 @@ openai
 dotenv
 yfinance
 reticker
+scipy
+llama_index
