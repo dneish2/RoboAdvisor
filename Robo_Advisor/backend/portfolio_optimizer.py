@@ -6,6 +6,8 @@ from scipy.optimize import minimize
 import yfinance as yf
 import logging
 
+from .models import decision_profile_to_simulation_assumptions, normalize_decision_profile
+
 logger = logging.getLogger(__name__)
 
 class PortfolioOptimizer:
@@ -29,6 +31,18 @@ class PortfolioOptimizer:
 
         self.user_profile = user_profile
         self.investment_thesis = investment_thesis
+        self.decision_profile = normalize_decision_profile(
+            user_profile.get('decision_profile'),
+            legacy_risk_tolerance=user_profile.get('risk_tolerance', 'Medium'),
+            legacy_goals=user_profile.get('goals', []),
+        )
+        self.simulation_assumptions = decision_profile_to_simulation_assumptions(self.decision_profile)
+        self.explainability_metadata = {
+            'thesis_summary': self.decision_profile.thesis_summary,
+            'success_definition': self.decision_profile.success_definition,
+            'objective_preset': self.decision_profile.objective_preset,
+            'risk_stance': self.decision_profile.risk_stance,
+        }
         self.risk_tolerance = user_profile.get('risk_tolerance', 'Medium')
         self.available_investment = user_profile.get('available_investment', 10000)
         self.max_holdings = max_holdings
@@ -234,7 +248,11 @@ class PortfolioOptimizer:
         else:
             adjusted_returns = mean_returns * 1.2
 
-        logger.info(f"Adjusted expected returns based on risk tolerance '{self.risk_tolerance}': {adjusted_returns}")
+        adjusted_returns = adjusted_returns * self.simulation_assumptions.return_bias_multiplier
+
+        logger.info(
+            f"Adjusted expected returns based on risk tolerance '{self.risk_tolerance}' and decision profile: {adjusted_returns}"
+        )
         return adjusted_returns
 
     def portfolio_return(self, weights):
@@ -259,7 +277,7 @@ class PortfolioOptimizer:
         logger.debug(f"Portfolio volatility: {vol}")
         return vol
 
-    def run_monte_carlo(self, allocations, num_simulations=10000):
+    def run_monte_carlo(self, allocations, num_simulations=None):
         """
         Simulate portfolio returns based on the user's time horizon.
 
@@ -267,13 +285,18 @@ class PortfolioOptimizer:
         :param num_simulations: Integer number of simulations to run
         :return: Numpy array of simulated returns adjusted for time horizon
         """
+        if num_simulations is None:
+            num_simulations = self.simulation_assumptions.num_simulations
+
         returns = self.asset_data.pct_change().dropna().values
         portfolio_returns = np.dot(returns, allocations)
+        portfolio_returns = np.clip(portfolio_returns, self.simulation_assumptions.tail_event_floor, None)
+
         np.random.seed(42)
         simulation_results = np.random.choice(portfolio_returns, size=num_simulations, replace=True)
 
-        # Adjust simulation results based on time horizon
-        simulation_results_adjusted = simulation_results * self.time_horizon_years
+        # Adjust simulation results based on time horizon and decision profile defaults
+        simulation_results_adjusted = simulation_results * self.time_horizon_years * self.simulation_assumptions.horizon_multiplier
         logger.info(f"Monte Carlo simulation completed with {num_simulations} simulations.")
         return simulation_results_adjusted
 
