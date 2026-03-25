@@ -12,6 +12,13 @@ from datetime import datetime, timezone
 
 from dataclasses import dataclass, field
 
+from .feature_flags import is_enabled
+from .versioned_payloads import (
+    adapt_internal_shape_to_legacy_output_fields,
+    build_decision_grade_simulation_result_v1,
+    build_simulation_result_v1,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -132,66 +139,7 @@ class PortfolioOptimizer:
         self.asset_data = self.fetch_asset_data()
         self.expected_returns = self.calculate_expected_returns()
         self.cov_matrix = self.asset_data.pct_change().dropna().cov().values
-        self.last_run_metadata = None
-
-    def validate_simulation_assumptions(self):
-        """Apply hard bounds and soft guardrails for simulation assumptions."""
-        a = self.simulation_assumptions
-        numeric_bounds = {
-            "expected_return": (-0.50, 0.50),
-            "volatility": (0.01, 1.00),
-            "inflation_rate": (-0.05, 0.20),
-            "correlation": (-1.0, 1.0),
-            "periodic_contribution": (0.0, 1_000_000.0),
-            "periodic_withdrawal": (0.0, 1_000_000.0),
-            "contribution_frequency_per_year": (1, 365),
-            "withdrawal_frequency_per_year": (1, 365),
-        }
-        for field_name, (minimum, maximum) in numeric_bounds.items():
-            value = getattr(a, field_name)
-            if value < minimum or value > maximum:
-                raise ValueError(
-                    f"Simulation assumption '{field_name}'={value} outside hard bounds [{minimum}, {maximum}]."
-                )
-
-        if a.rebalance_cadence not in {"none", "monthly", "quarterly", "annual"}:
-            raise ValueError(
-                "Simulation assumption 'rebalance_cadence' must be one of: none, monthly, quarterly, annual."
-            )
-
-        warnings = []
-        if a.expected_return > 0.15:
-            warnings.append("Expected return is above 15%, which is a low-confidence planning assumption.")
-        if a.volatility > 0.35:
-            warnings.append("Volatility is above 35%, which may produce unstable long-horizon outcomes.")
-        if abs(a.correlation) > 0.85:
-            warnings.append("Correlation magnitude above 0.85 reduces diversification confidence.")
-        if a.inflation_rate > 0.08:
-            warnings.append("Inflation above 8% should be treated as a stress case, not a baseline.")
-        if a.periodic_withdrawal > a.periodic_contribution and self.time_horizon_years >= 10:
-            warnings.append("Withdrawals exceed contributions on a long horizon; depletion risk is elevated.")
-
-        self.simulation_warnings = warnings
-        for message in warnings:
-            logger.warning(message)
-
-    def _persist_simulation_run(self, assumptions_snapshot):
-        """Persist simulation seed + assumptions snapshot for reproducibility."""
-        payload = {
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-            "seed": self.random_seed,
-            "assumptions": assumptions_snapshot,
-        }
-        self.last_run_metadata = payload
-
-        repo_root = os.path.dirname(os.path.dirname(__file__))
-        output_path = os.path.join(repo_root, "data", "simulation_runs.jsonl")
-        try:
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            with open(output_path, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(payload) + "\n")
-        except Exception as exc:
-            logger.warning(f"Unable to persist simulation run metadata: {exc}")
+        self.last_simulation_payload = None
 
     def get_time_horizon(self):
         """
@@ -253,6 +201,7 @@ class PortfolioOptimizer:
             })
             simulation_results = self.run_monte_carlo(allocations)
             expected_return = np.mean(simulation_results)
+            self.last_simulation_payload = self._build_simulation_payload(simulation_results)
             portfolio['Investment'] = portfolio['Allocation'] * self.available_investment
             logger.info(f"Portfolio allocation (single asset): {portfolio}")
             return portfolio, expected_return, simulation_results
@@ -283,6 +232,7 @@ class PortfolioOptimizer:
             # Monte Carlo Simulation for expected returns
             simulation_results = self.run_monte_carlo(allocations)
             expected_return = np.mean(simulation_results)
+            self.last_simulation_payload = self._build_simulation_payload(simulation_results)
 
             # Calculate final portfolio value based on available investment
             portfolio['Investment'] = portfolio['Allocation'] * self.available_investment
@@ -448,6 +398,19 @@ class PortfolioOptimizer:
         logger.info(f"Monte Carlo simulation completed with {num_simulations} simulations.")
         return simulation_results_adjusted
 
+    def _build_simulation_payload(self, simulation_results):
+        assumptions = {
+            "horizon_years": int(self.time_horizon_years),
+            "sampling_method": "historical_bootstrap",
+            "random_seed": 42,
+            "risk_tolerance": self.risk_tolerance,
+        }
+
+        if is_enabled("simulation_assumptions_v1"):
+            return build_decision_grade_simulation_result_v1(simulation_results, assumptions)
+
+        return build_simulation_result_v1(simulation_results)
+
     def summarize_simulation(self, simulation_results):
         """
         Generate summary statistics from simulation results.
@@ -455,14 +418,7 @@ class PortfolioOptimizer:
         :param simulation_results: Numpy array of simulation results
         :return: Dictionary containing summary statistics
         """
-        summary = {
-            'Mean Return': np.mean(simulation_results),
-            'Median Return': np.median(simulation_results),
-            'Standard Deviation': np.std(simulation_results),
-            'Minimum Return': np.min(simulation_results),
-            'Maximum Return': np.max(simulation_results),
-            '5th Percentile': np.percentile(simulation_results, 5),
-            '95th Percentile': np.percentile(simulation_results, 95)
-        }
+        simulation_payload = self._build_simulation_payload(simulation_results)
+        summary = adapt_internal_shape_to_legacy_output_fields(simulation_payload)
         logger.info(f"Simulation Summary: {summary}")
         return summary
