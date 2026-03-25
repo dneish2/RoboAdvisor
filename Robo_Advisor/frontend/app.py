@@ -237,11 +237,33 @@ def gather_requirements():
     st.header("Available Investment Amount")
     available_investment = st.number_input("Amount to Invest ($)", min_value=0.0, value=2000.0, step=1000.0)
 
+    st.header("Decision Profile")
+    objective_preset = st.selectbox(
+        "Objective preset",
+        ["capital_preservation", "balanced_growth", "aggressive_growth", "income"],
+        index=1,
+    )
+    success_definition = st.text_input(
+        "Success definition",
+        value="Meet stated goals with controlled drawdown.",
+    )
+    thesis_summary = st.text_area(
+        "Thesis summary (explainability metadata)",
+        value="",
+        help="This text is exposed in UI/API as explainability metadata.",
+    )
+
     if st.button("Submit"):
         user_profile = UserProfile(
             goals=goals,
             risk_tolerance=risk,
-            available_investment=available_investment
+            available_investment=available_investment,
+            decision_profile={
+                "objective_preset": objective_preset,
+                "risk_stance": risk.lower(),
+                "success_definition": success_definition,
+                "thesis_summary": thesis_summary,
+            },
         )
         user_profile.save_to_csv('data/user_data.csv')
         st.success("Requirements gathered successfully!")
@@ -351,6 +373,9 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
 
     # Display Expected Return
     st.subheader(f"Expected Annual Return: {expected_return * 100:.2f}%")
+
+    if optimizer.explainability_metadata.get("thesis_summary"):
+        st.caption(f"Thesis summary (explainability metadata): {optimizer.explainability_metadata['thesis_summary']}")
 
     # Monte Carlo Simulation Results
     st.header("Monte Carlo Simulation Results")
@@ -805,6 +830,7 @@ def main():
             user_profile = {
                 'goals': goals,
                 'risk_tolerance': last_profile['risk_tolerance'],
+                'decision_profile': last_profile.get('decision_profile'),
                 'available_investment': float(last_profile['available_investment'])
             }
             st.write("Loaded User Profile:", user_profile)
