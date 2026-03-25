@@ -82,7 +82,12 @@ def _normalize_ui_payload(response, tickers):
         "raw_indicator_values": {},
         "provenance": [],
         "data_missing": [],
-        "overlays": {}
+        "overlays": {},
+        "what_happened": "",
+        "why": {"thesis": "", "assumptions": []},
+        "what_next": [],
+        "ranking_method": "",
+        "thresholds": {},
     }
 
     parsed_response = None
@@ -117,6 +122,11 @@ def _normalize_ui_payload(response, tickers):
     # Ensure all mentioned tickers exist in overlays map.
     for ticker in tickers:
         payload["overlays"].setdefault(ticker, [])
+
+    deterministic_blocks = build_recommendation_blocks(payload.get("raw_indicator_values", {}))
+    for key, value in deterministic_blocks.items():
+        if not payload.get(key):
+            payload[key] = value
 
     return payload
 
@@ -534,29 +544,36 @@ def query_llama():
                     if normalized_tickers:
                         ui_payload = _normalize_ui_payload(response, normalized_tickers)
 
-                        st.subheader("1) Summary")
-                        st.write(ui_payload.get("summary", "No summary returned."))
+                        st.subheader("1) What happened")
+                        st.write(ui_payload.get("what_happened", ui_payload.get("summary", "No summary returned.")))
 
-                        st.subheader("2) Key evidence bullets")
-                        key_evidence = ui_payload.get("key_evidence", [])
-                        if key_evidence:
-                            for point in key_evidence:
-                                st.markdown(f"- {point}")
+                        st.subheader("2) Why (thesis + assumptions)")
+                        why = ui_payload.get("why", {})
+                        st.markdown(f"**Thesis:** {why.get('thesis', 'No thesis was returned.')}")
+                        assumptions = why.get("assumptions", [])
+                        if assumptions:
+                            for assumption in assumptions:
+                                st.markdown(f"- {assumption}")
                         else:
-                            st.info("No key evidence bullets were provided.")
+                            st.info("No assumptions were returned.")
 
-                        st.subheader("3) Contrarian view")
-                        st.write(ui_payload.get("contrarian_view", "No contrarian view returned."))
-
-                        st.subheader("4) Follow-up actions")
-                        follow_ups = ui_payload.get("follow_up_actions", [])
-                        if follow_ups:
-                            for idx, prompt in enumerate(follow_ups):
-                                if st.button(f"Run follow-up: {prompt}", key=f"followup_{idx}"):
-                                    st.session_state.chat_query_input = prompt
-                                    st.rerun()
+                        st.subheader("3) What next (Top 3 actions)")
+                        top_actions = ui_payload.get("what_next", [])
+                        if top_actions:
+                            for idx, action in enumerate(top_actions[:3], start=1):
+                                st.markdown(
+                                    (
+                                        f"**{idx}. {action.get('title', 'Untitled action')}**  \n"
+                                        f"Impact: {action.get('impact_before_pct', 0)}% → "
+                                        f"{action.get('impact_after_pct', 0)}%  \n"
+                                        f"Score: {action.get('score', 0)} "
+                                        f"(impact_delta={action.get('impact_delta', 0)}, "
+                                        f"confidence={action.get('confidence_score', 0)}, "
+                                        f"complexity_penalty={action.get('complexity_penalty', 0)})"
+                                    )
+                                )
                         else:
-                            st.info("No follow-up prompts were provided.")
+                            st.info("No deterministic actions were returned.")
 
                         st.subheader("Stock Performance Charts")
                         for ticker in normalized_tickers:
