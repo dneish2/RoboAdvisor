@@ -80,6 +80,14 @@ The app will then guide you through building a portfolio or analyzing financial 
 Yes, in the **Chat** section, you can:
 - Ask questions about company reports.
 - Enter a stock ticker to visualize its historical performance.
+- Review a structured symbol-mode response with:
+  1. Summary
+  2. Key evidence bullets
+  3. Contrarian view
+  4. Follow-up actions (clickable prompts)
+- Expand advanced details for raw indicators, provenance, and data-missing notices.
+
+> V1 backlog flags (not blockers): heatmap rendering from `ui_payload.overlays` and deeper MCP-app workflow integration.
 
 ---
 

@@ -5,6 +5,7 @@ import os
 import re
 import json  # For JSON parsing
 import logging
+from collections import defaultdict
 
 # Add the parent directory to sys.path to locate the backend package
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -66,7 +67,69 @@ def get_historical_data(ticker, period='1y'):
         return None
     return hist
 
-def plot_stock_chart(ticker, data):
+def _normalize_ui_payload(response, tickers):
+    """Normalize LLM responses into a deterministic UI payload."""
+    default_payload = {
+        "summary": str(response),
+        "key_evidence": [],
+        "contrarian_view": "No explicit contrarian view was returned.",
+        "follow_up_actions": [],
+        "raw_indicator_values": {},
+        "provenance": [],
+        "data_missing": [],
+        "overlays": {}
+    }
+
+    parsed_response = None
+    if isinstance(response, dict):
+        parsed_response = response
+    elif isinstance(response, str):
+        try:
+            parsed_response = json.loads(response)
+        except json.JSONDecodeError:
+            parsed_response = None
+
+    if not parsed_response:
+        return default_payload
+
+    ui_payload = parsed_response.get("ui_payload", parsed_response)
+    if not isinstance(ui_payload, dict):
+        return default_payload
+
+    payload = default_payload.copy()
+    payload.update({k: v for k, v in ui_payload.items() if v is not None})
+    payload["overlays"] = payload.get("overlays") or {}
+
+    if isinstance(payload["overlays"], list):
+        # Allow global overlays while preserving deterministic grouping.
+        grouped = defaultdict(list)
+        for overlay in payload["overlays"]:
+            symbol = str(overlay.get("symbol", "")).upper()
+            if symbol:
+                grouped[symbol].append(overlay)
+        payload["overlays"] = dict(grouped)
+
+    # Ensure all mentioned tickers exist in overlays map.
+    for ticker in tickers:
+        payload["overlays"].setdefault(ticker, [])
+
+    return payload
+
+
+def _sorted_overlays(overlays):
+    """Sort overlays deterministically before plotting."""
+    def _sort_key(item):
+        return (
+            str(item.get("type", "")).lower(),
+            str(item.get("label", "")).lower(),
+            str(item.get("timestamp", item.get("start", ""))),
+            float(item.get("value", item.get("price", 0.0)) or 0.0)
+        )
+
+    return sorted(overlays or [], key=_sort_key)
+
+
+def plot_stock_chart(ticker, data, overlays=None):
     """Plot stock chart using Plotly."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -76,6 +139,31 @@ def plot_stock_chart(ticker, data):
         name=f'{ticker} Close Price',
         line=dict(color='cyan')
     ))
+
+    for overlay in _sorted_overlays(overlays):
+        overlay_type = str(overlay.get("type", "marker")).lower()
+        label = overlay.get("label", overlay_type.title())
+        timestamp = overlay.get("timestamp")
+        value = overlay.get("value", overlay.get("price"))
+
+        if overlay_type == "hline" and value is not None:
+            fig.add_hline(
+                y=float(value),
+                line_dash="dot",
+                line_color="orange",
+                annotation_text=label
+            )
+        elif timestamp is not None and value is not None:
+            fig.add_trace(go.Scatter(
+                x=[timestamp],
+                y=[float(value)],
+                mode='markers+text',
+                marker=dict(size=10, color='orange'),
+                text=[label],
+                textposition='top center',
+                name=f"{ticker} Overlay"
+            ))
+
     fig.update_layout(
         title=f"{ticker} - 1 Year Performance",
         xaxis_title='Date',
@@ -363,7 +451,14 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
 
 def query_llama():
     st.header("Ask About Companies")
-    user_query = st.text_input("Enter your question about companies' reports:")
+    if "chat_query_input" not in st.session_state:
+        st.session_state.chat_query_input = ""
+
+    user_query = st.text_input(
+        "Enter your question about companies' reports:",
+        key="chat_query_input"
+    )
+
     if st.button("Ask"):
         if user_query.strip() == "":
             st.warning("Please enter a valid question.")
@@ -372,23 +467,77 @@ def query_llama():
                 try:
                     # Query LLamaIndex
                     response = llama_query.query(user_query)
-                    st.write(response)
-
-                    # Extract and visualize tickers
                     tickers = extract_tickers(user_query)
-                    if tickers:
+                    normalized_tickers = [
+                        ticker.upper() for ticker in tickers if is_valid_ticker(ticker.upper())
+                    ]
+
+                    # Symbol mode renderer (V1): deterministic structured layout.
+                    if normalized_tickers:
+                        ui_payload = _normalize_ui_payload(response, normalized_tickers)
+
+                        st.subheader("1) Summary")
+                        st.write(ui_payload.get("summary", "No summary returned."))
+
+                        st.subheader("2) Key evidence bullets")
+                        key_evidence = ui_payload.get("key_evidence", [])
+                        if key_evidence:
+                            for point in key_evidence:
+                                st.markdown(f"- {point}")
+                        else:
+                            st.info("No key evidence bullets were provided.")
+
+                        st.subheader("3) Contrarian view")
+                        st.write(ui_payload.get("contrarian_view", "No contrarian view returned."))
+
+                        st.subheader("4) Follow-up actions")
+                        follow_ups = ui_payload.get("follow_up_actions", [])
+                        if follow_ups:
+                            for idx, prompt in enumerate(follow_ups):
+                                if st.button(f"Run follow-up: {prompt}", key=f"followup_{idx}"):
+                                    st.session_state.chat_query_input = prompt
+                                    st.rerun()
+                        else:
+                            st.info("No follow-up prompts were provided.")
+
                         st.subheader("Stock Performance Charts")
-                        for ticker in tickers:
-                            ticker = ticker.upper()
-                            if is_valid_ticker(ticker):
-                                data = get_historical_data(ticker)
-                                if data is not None:
-                                    plot_stock_chart(ticker, data)
-                                else:
-                                    st.warning(f"No data found for ticker: {ticker}")
+                        for ticker in normalized_tickers:
+                            data = get_historical_data(ticker)
+                            if data is not None:
+                                overlays = ui_payload.get("overlays", {}).get(ticker, [])
+                                plot_stock_chart(ticker, data, overlays=overlays)
                             else:
-                                st.warning(f"Invalid ticker symbol: {ticker}")
+                                st.warning(f"No data found for ticker: {ticker}")
+
+                        with st.expander("Details: raw indicators, provenance, and data gaps"):
+                            st.markdown("**Raw indicator values**")
+                            raw_indicators = ui_payload.get("raw_indicator_values", {})
+                            if raw_indicators:
+                                st.json(raw_indicators)
+                            else:
+                                st.info("No raw indicator values returned.")
+
+                            st.markdown("**Timestamp/source provenance**")
+                            provenance = ui_payload.get("provenance", [])
+                            if provenance:
+                                for entry in provenance:
+                                    st.markdown(f"- {entry}")
+                            else:
+                                st.info("No provenance metadata returned.")
+
+                            st.markdown("**Data missing notices**")
+                            data_missing = ui_payload.get("data_missing", [])
+                            if data_missing:
+                                for notice in data_missing:
+                                    st.warning(notice)
+                            else:
+                                st.success("No data-missing notices were reported.")
+
+                        # Backlog flags (not V1 blockers):
+                        # - Integrate ui_payload-backed heatmap widget for multi-symbol comparison.
+                        # - Add MCP-app handoff cards for analyst workflow actions.
                     else:
+                        st.write(response)
                         st.info("No valid stock tickers found in your query.")
 
                 except Exception as e:
