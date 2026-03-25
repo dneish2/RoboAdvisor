@@ -22,6 +22,11 @@ from backend.portfolio_optimizer import PortfolioOptimizer
 from backend.data_fetcher import DataFetcher
 from backend.llama_integration import LLamaQuery
 from backend.options_visualizer import OptionsVisualizer
+from backend.feature_flags import is_enabled
+from backend.versioned_payloads import (
+    adapt_internal_shape_to_legacy_output_fields,
+    adapt_legacy_input_to_internal_shape,
+)
 
 # Additional Imports
 import pyttsx3  # For Text-to-Speech
@@ -263,6 +268,15 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
             st.error(str(ve))
             return
 
+    # Build the internal request schema while preserving the legacy shape
+    # for current components/endpoints in this rollout phase.
+    internal_request = adapt_legacy_input_to_internal_shape(user_profile)
+    if is_enabled("decision_profile_v1"):
+        logger.info(
+            "decision_profile_v1 enabled with schema '%s'.",
+            internal_request.get("schema_version"),
+        )
+
     # Load the investment thesis
     investment_thesis = data_fetcher.load_investment_thesis()
     if investment_thesis.empty:
@@ -341,6 +355,14 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
         st.plotly_chart(fig_sim)
     except Exception as e:
         st.error(f"Failed to plot Monte Carlo simulation results: {e}")
+
+    # Backward-compatible projection from internal simulation payload.
+    if getattr(optimizer, "last_simulation_payload", None):
+        legacy_sim_summary = adapt_internal_shape_to_legacy_output_fields(optimizer.last_simulation_payload)
+        if is_enabled("recommendation_loop_v1"):
+            legacy_sim_summary["Recommendation Loop"] = "v1_enabled"
+        st.subheader("Simulation Summary (Legacy-Compatible)")
+        st.json(legacy_sim_summary)
 
     # Text-to-Speech for Portfolio Allocation
     if tts_engine:

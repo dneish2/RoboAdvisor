@@ -6,6 +6,13 @@ from scipy.optimize import minimize
 import yfinance as yf
 import logging
 
+from .feature_flags import is_enabled
+from .versioned_payloads import (
+    adapt_internal_shape_to_legacy_output_fields,
+    build_decision_grade_simulation_result_v1,
+    build_simulation_result_v1,
+)
+
 logger = logging.getLogger(__name__)
 
 class PortfolioOptimizer:
@@ -48,6 +55,7 @@ class PortfolioOptimizer:
         self.asset_data = self.fetch_asset_data()
         self.expected_returns = self.calculate_expected_returns()
         self.cov_matrix = self.asset_data.pct_change().dropna().cov().values
+        self.last_simulation_payload = None
 
     def get_time_horizon(self):
         """
@@ -109,6 +117,7 @@ class PortfolioOptimizer:
             })
             simulation_results = self.run_monte_carlo(allocations)
             expected_return = np.mean(simulation_results)
+            self.last_simulation_payload = self._build_simulation_payload(simulation_results)
             portfolio['Investment'] = portfolio['Allocation'] * self.available_investment
             logger.info(f"Portfolio allocation (single asset): {portfolio}")
             return portfolio, expected_return, simulation_results
@@ -139,6 +148,7 @@ class PortfolioOptimizer:
             # Monte Carlo Simulation for expected returns
             simulation_results = self.run_monte_carlo(allocations)
             expected_return = np.mean(simulation_results)
+            self.last_simulation_payload = self._build_simulation_payload(simulation_results)
 
             # Calculate final portfolio value based on available investment
             portfolio['Investment'] = portfolio['Allocation'] * self.available_investment
@@ -277,6 +287,19 @@ class PortfolioOptimizer:
         logger.info(f"Monte Carlo simulation completed with {num_simulations} simulations.")
         return simulation_results_adjusted
 
+    def _build_simulation_payload(self, simulation_results):
+        assumptions = {
+            "horizon_years": int(self.time_horizon_years),
+            "sampling_method": "historical_bootstrap",
+            "random_seed": 42,
+            "risk_tolerance": self.risk_tolerance,
+        }
+
+        if is_enabled("simulation_assumptions_v1"):
+            return build_decision_grade_simulation_result_v1(simulation_results, assumptions)
+
+        return build_simulation_result_v1(simulation_results)
+
     def summarize_simulation(self, simulation_results):
         """
         Generate summary statistics from simulation results.
@@ -284,14 +307,7 @@ class PortfolioOptimizer:
         :param simulation_results: Numpy array of simulation results
         :return: Dictionary containing summary statistics
         """
-        summary = {
-            'Mean Return': np.mean(simulation_results),
-            'Median Return': np.median(simulation_results),
-            'Standard Deviation': np.std(simulation_results),
-            'Minimum Return': np.min(simulation_results),
-            'Maximum Return': np.max(simulation_results),
-            '5th Percentile': np.percentile(simulation_results, 5),
-            '95th Percentile': np.percentile(simulation_results, 95)
-        }
+        simulation_payload = self._build_simulation_payload(simulation_results)
+        summary = adapt_internal_shape_to_legacy_output_fields(simulation_payload)
         logger.info(f"Simulation Summary: {summary}")
         return summary
