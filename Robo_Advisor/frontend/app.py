@@ -18,7 +18,7 @@ import plotly.graph_objs as go
 
 # Backend Module Imports
 from backend.models import UserProfile
-from backend.portfolio_optimizer import PortfolioOptimizer
+from backend.portfolio_optimizer import PortfolioOptimizer, map_legacy_ui_to_simulation_assumptions
 from backend.data_fetcher import DataFetcher
 from backend.llama_integration import LLamaQuery
 from backend.options_visualizer import OptionsVisualizer
@@ -271,7 +271,15 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
 
     # Initialize PortfolioOptimizer with user profile, investment thesis, and max_holdings
     try:
-        optimizer = PortfolioOptimizer(user_profile, investment_thesis, max_holdings=max_holdings)
+        simulation_inputs = user_profile.get("simulation_inputs", {}) if isinstance(user_profile, dict) else {}
+        simulation_assumptions = map_legacy_ui_to_simulation_assumptions(user_profile, simulation_inputs)
+        optimizer = PortfolioOptimizer(
+            user_profile,
+            investment_thesis,
+            max_holdings=max_holdings,
+            simulation_assumptions=simulation_assumptions,
+            random_seed=42,
+        )
     except ValueError as ve:
         st.error(f"Portfolio optimization initialization failed: {ve}")
         return
@@ -288,6 +296,9 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
         # Inform the user about the limited holdings
         if len(optimizer.assets) < max_holdings:
             st.warning(f"Only {len(optimizer.assets)} assets were available and included in the portfolio based on your risk tolerance.")
+        if optimizer.simulation_warnings:
+            for warning in optimizer.simulation_warnings:
+                st.warning(f"Simulation guardrail: {warning}")
         # Display the portfolio, expected return, and simulation results
         # Display only the portfolio, hiding other data
         st.write("Optimized Portfolio:")
