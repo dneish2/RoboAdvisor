@@ -18,11 +18,15 @@ import plotly.graph_objs as go
 
 # Backend Module Imports
 from backend.models import UserProfile
-from backend.portfolio_optimizer import PortfolioOptimizer
+from backend.portfolio_optimizer import PortfolioOptimizer, map_legacy_ui_to_simulation_assumptions
 from backend.data_fetcher import DataFetcher
 from backend.llama_integration import LLamaQuery
 from backend.options_visualizer import OptionsVisualizer
-from backend.recommendation_engine import build_recommendation_blocks
+from backend.feature_flags import is_enabled
+from backend.versioned_payloads import (
+    adapt_internal_shape_to_legacy_output_fields,
+    adapt_legacy_input_to_internal_shape,
+)
 
 # Additional Imports
 import pyttsx3  # For Text-to-Speech
@@ -243,11 +247,33 @@ def gather_requirements():
     st.header("Available Investment Amount")
     available_investment = st.number_input("Amount to Invest ($)", min_value=0.0, value=2000.0, step=1000.0)
 
+    st.header("Decision Profile")
+    objective_preset = st.selectbox(
+        "Objective preset",
+        ["capital_preservation", "balanced_growth", "aggressive_growth", "income"],
+        index=1,
+    )
+    success_definition = st.text_input(
+        "Success definition",
+        value="Meet stated goals with controlled drawdown.",
+    )
+    thesis_summary = st.text_area(
+        "Thesis summary (explainability metadata)",
+        value="",
+        help="This text is exposed in UI/API as explainability metadata.",
+    )
+
     if st.button("Submit"):
         user_profile = UserProfile(
             goals=goals,
             risk_tolerance=risk,
-            available_investment=available_investment
+            available_investment=available_investment,
+            decision_profile={
+                "objective_preset": objective_preset,
+                "risk_stance": risk.lower(),
+                "success_definition": success_definition,
+                "thesis_summary": thesis_summary,
+            },
         )
         user_profile.save_to_csv('data/user_data.csv')
         st.success("Requirements gathered successfully!")
@@ -274,6 +300,15 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
             st.error(str(ve))
             return
 
+    # Build the internal request schema while preserving the legacy shape
+    # for current components/endpoints in this rollout phase.
+    internal_request = adapt_legacy_input_to_internal_shape(user_profile)
+    if is_enabled("decision_profile_v1"):
+        logger.info(
+            "decision_profile_v1 enabled with schema '%s'.",
+            internal_request.get("schema_version"),
+        )
+
     # Load the investment thesis
     investment_thesis = data_fetcher.load_investment_thesis()
     if investment_thesis.empty:
@@ -282,7 +317,15 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
 
     # Initialize PortfolioOptimizer with user profile, investment thesis, and max_holdings
     try:
-        optimizer = PortfolioOptimizer(user_profile, investment_thesis, max_holdings=max_holdings)
+        simulation_inputs = user_profile.get("simulation_inputs", {}) if isinstance(user_profile, dict) else {}
+        simulation_assumptions = map_legacy_ui_to_simulation_assumptions(user_profile, simulation_inputs)
+        optimizer = PortfolioOptimizer(
+            user_profile,
+            investment_thesis,
+            max_holdings=max_holdings,
+            simulation_assumptions=simulation_assumptions,
+            random_seed=42,
+        )
     except ValueError as ve:
         st.error(f"Portfolio optimization initialization failed: {ve}")
         return
@@ -299,6 +342,9 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
         # Inform the user about the limited holdings
         if len(optimizer.assets) < max_holdings:
             st.warning(f"Only {len(optimizer.assets)} assets were available and included in the portfolio based on your risk tolerance.")
+        if optimizer.simulation_warnings:
+            for warning in optimizer.simulation_warnings:
+                st.warning(f"Simulation guardrail: {warning}")
         # Display the portfolio, expected return, and simulation results
         # Display only the portfolio, hiding other data
         st.write("Optimized Portfolio:")
@@ -338,6 +384,9 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
     # Display Expected Return
     st.subheader(f"Expected Annual Return: {expected_return * 100:.2f}%")
 
+    if optimizer.explainability_metadata.get("thesis_summary"):
+        st.caption(f"Thesis summary (explainability metadata): {optimizer.explainability_metadata['thesis_summary']}")
+
     # Monte Carlo Simulation Results
     st.header("Monte Carlo Simulation Results")
     try:
@@ -352,6 +401,14 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
         st.plotly_chart(fig_sim)
     except Exception as e:
         st.error(f"Failed to plot Monte Carlo simulation results: {e}")
+
+    # Backward-compatible projection from internal simulation payload.
+    if getattr(optimizer, "last_simulation_payload", None):
+        legacy_sim_summary = adapt_internal_shape_to_legacy_output_fields(optimizer.last_simulation_payload)
+        if is_enabled("recommendation_loop_v1"):
+            legacy_sim_summary["Recommendation Loop"] = "v1_enabled"
+        st.subheader("Simulation Summary (Legacy-Compatible)")
+        st.json(legacy_sim_summary)
 
     # Text-to-Speech for Portfolio Allocation
     if tts_engine:
@@ -790,6 +847,7 @@ def main():
             user_profile = {
                 'goals': goals,
                 'risk_tolerance': last_profile['risk_tolerance'],
+                'decision_profile': last_profile.get('decision_profile'),
                 'available_investment': float(last_profile['available_investment'])
             }
             st.write("Loaded User Profile:", user_profile)

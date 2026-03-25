@@ -5,11 +5,100 @@ import pandas as pd
 from scipy.optimize import minimize
 import yfinance as yf
 import logging
+import json
+import os
+from copy import deepcopy
+from datetime import datetime, timezone
+
+from dataclasses import dataclass, field
+
+from .feature_flags import is_enabled
+from .versioned_payloads import (
+    adapt_internal_shape_to_legacy_output_fields,
+    build_decision_grade_simulation_result_v1,
+    build_simulation_result_v1,
+)
+
+from .models import decision_profile_to_simulation_assumptions, normalize_decision_profile
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass(frozen=True)
+class SimulationAssumptions:
+    expected_return: float
+    volatility: float
+    inflation_rate: float
+    correlation: float
+    periodic_contribution: float
+    periodic_withdrawal: float
+    contribution_frequency_per_year: int
+    withdrawal_frequency_per_year: int
+    rebalance_cadence: str
+    scenario_toggles: dict = field(default_factory=dict)
+
+    def to_dict(self):
+        return {
+            "expected_return": self.expected_return,
+            "volatility": self.volatility,
+            "inflation_rate": self.inflation_rate,
+            "correlation": self.correlation,
+            "periodic_contribution": self.periodic_contribution,
+            "periodic_withdrawal": self.periodic_withdrawal,
+            "contribution_frequency_per_year": self.contribution_frequency_per_year,
+            "withdrawal_frequency_per_year": self.withdrawal_frequency_per_year,
+            "rebalance_cadence": self.rebalance_cadence,
+            "scenario_toggles": deepcopy(self.scenario_toggles),
+        }
+
+
+def map_legacy_ui_to_simulation_assumptions(user_profile, simulation_inputs=None):
+    """Maps legacy UI payload to internal simulation assumptions.
+
+    Existing flows pass only user_profile. This mapper backfills defaults so
+    behavior remains unchanged while introducing explicit assumptions.
+    """
+    simulation_inputs = simulation_inputs or {}
+    risk_tolerance = str(user_profile.get("risk_tolerance", "Medium")).capitalize()
+    available_investment = float(user_profile.get("available_investment", 0.0) or 0.0)
+
+    # Risk-based defaults preserve historical behavior while allowing override.
+    risk_defaults = {
+        "Low": {"expected_return": 0.05, "volatility": 0.10},
+        "Medium": {"expected_return": 0.08, "volatility": 0.16},
+        "High": {"expected_return": 0.11, "volatility": 0.24},
+    }
+    defaults = risk_defaults.get(risk_tolerance, risk_defaults["Medium"])
+
+    default_assumptions = {
+        "expected_return": defaults["expected_return"],
+        "volatility": defaults["volatility"],
+        "inflation_rate": 0.02,
+        "correlation": 0.25,
+        "periodic_contribution": max(0.0, available_investment * 0.01),
+        "periodic_withdrawal": 0.0,
+        "contribution_frequency_per_year": 12,
+        "withdrawal_frequency_per_year": 12,
+        "rebalance_cadence": "quarterly",
+        "scenario_toggles": {
+            "market_stress": False,
+            "inflation_shock": False,
+            "liquidity_crunch": False,
+        },
+    }
+
+    merged = deepcopy(default_assumptions)
+    merged.update({k: v for k, v in simulation_inputs.items() if k != "scenario_toggles"})
+    incoming_toggles = simulation_inputs.get("scenario_toggles") or {}
+    merged["scenario_toggles"] = {
+        **default_assumptions["scenario_toggles"],
+        **incoming_toggles,
+    }
+    return SimulationAssumptions(**merged)
+
+
 class PortfolioOptimizer:
-    def __init__(self, user_profile, investment_thesis, max_holdings=5):
+    def __init__(self, user_profile, investment_thesis, max_holdings=5, simulation_assumptions=None, random_seed=42):
         """
         Initialize the PortfolioOptimizer with user profile, investment thesis, and maximum holdings.
 
@@ -29,9 +118,24 @@ class PortfolioOptimizer:
 
         self.user_profile = user_profile
         self.investment_thesis = investment_thesis
+        self.decision_profile = normalize_decision_profile(
+            user_profile.get('decision_profile'),
+            legacy_risk_tolerance=user_profile.get('risk_tolerance', 'Medium'),
+            legacy_goals=user_profile.get('goals', []),
+        )
+        self.simulation_assumptions = decision_profile_to_simulation_assumptions(self.decision_profile)
+        self.explainability_metadata = {
+            'thesis_summary': self.decision_profile.thesis_summary,
+            'success_definition': self.decision_profile.success_definition,
+            'objective_preset': self.decision_profile.objective_preset,
+            'risk_stance': self.decision_profile.risk_stance,
+        }
         self.risk_tolerance = user_profile.get('risk_tolerance', 'Medium')
         self.available_investment = user_profile.get('available_investment', 10000)
         self.max_holdings = max_holdings
+        self.random_seed = int(random_seed)
+        self.simulation_assumptions = simulation_assumptions or map_legacy_ui_to_simulation_assumptions(user_profile)
+        self.simulation_warnings = []
 
         # Select assets based on risk tolerance
         self.assets = self.select_assets_based_on_risk()
@@ -44,10 +148,12 @@ class PortfolioOptimizer:
 
         # Get user's time horizon and fetch asset data
         self.time_horizon_years = self.get_time_horizon()
+        self.validate_simulation_assumptions()
         logger.info(f"User's time horizon: {self.time_horizon_years} years")
         self.asset_data = self.fetch_asset_data()
         self.expected_returns = self.calculate_expected_returns()
         self.cov_matrix = self.asset_data.pct_change().dropna().cov().values
+        self.last_simulation_payload = None
 
     def get_time_horizon(self):
         """
@@ -109,6 +215,7 @@ class PortfolioOptimizer:
             })
             simulation_results = self.run_monte_carlo(allocations)
             expected_return = np.mean(simulation_results)
+            self.last_simulation_payload = self._build_simulation_payload(simulation_results)
             portfolio['Investment'] = portfolio['Allocation'] * self.available_investment
             logger.info(f"Portfolio allocation (single asset): {portfolio}")
             return portfolio, expected_return, simulation_results
@@ -139,6 +246,7 @@ class PortfolioOptimizer:
             # Monte Carlo Simulation for expected returns
             simulation_results = self.run_monte_carlo(allocations)
             expected_return = np.mean(simulation_results)
+            self.last_simulation_payload = self._build_simulation_payload(simulation_results)
 
             # Calculate final portfolio value based on available investment
             portfolio['Investment'] = portfolio['Allocation'] * self.available_investment
@@ -234,7 +342,11 @@ class PortfolioOptimizer:
         else:
             adjusted_returns = mean_returns * 1.2
 
-        logger.info(f"Adjusted expected returns based on risk tolerance '{self.risk_tolerance}': {adjusted_returns}")
+        adjusted_returns = adjusted_returns * self.simulation_assumptions.return_bias_multiplier
+
+        logger.info(
+            f"Adjusted expected returns based on risk tolerance '{self.risk_tolerance}' and decision profile: {adjusted_returns}"
+        )
         return adjusted_returns
 
     def portfolio_return(self, weights):
@@ -259,7 +371,7 @@ class PortfolioOptimizer:
         logger.debug(f"Portfolio volatility: {vol}")
         return vol
 
-    def run_monte_carlo(self, allocations, num_simulations=10000):
+    def run_monte_carlo(self, allocations, num_simulations=None):
         """
         Simulate portfolio returns based on the user's time horizon.
 
@@ -267,15 +379,58 @@ class PortfolioOptimizer:
         :param num_simulations: Integer number of simulations to run
         :return: Numpy array of simulated returns adjusted for time horizon
         """
+        if num_simulations is None:
+            num_simulations = self.simulation_assumptions.num_simulations
+
         returns = self.asset_data.pct_change().dropna().values
         portfolio_returns = np.dot(returns, allocations)
-        np.random.seed(42)
-        simulation_results = np.random.choice(portfolio_returns, size=num_simulations, replace=True)
+        rng = np.random.default_rng(self.random_seed)
+        simulation_results = rng.choice(portfolio_returns, size=num_simulations, replace=True)
+
+        assumptions = self.simulation_assumptions
+        mean_observed = np.mean(portfolio_returns)
+        std_observed = np.std(portfolio_returns)
+        if std_observed > 0:
+            simulation_results = ((simulation_results - mean_observed) / std_observed) * assumptions.volatility + assumptions.expected_return
+        else:
+            simulation_results = np.full(num_simulations, assumptions.expected_return)
+
+        if assumptions.scenario_toggles.get("market_stress"):
+            simulation_results = simulation_results - (assumptions.volatility * 0.5)
+        if assumptions.scenario_toggles.get("inflation_shock"):
+            simulation_results = simulation_results - max(0.0, assumptions.inflation_rate * 0.5)
+        if assumptions.scenario_toggles.get("liquidity_crunch"):
+            simulation_results = simulation_results * (1.0 - min(0.2, assumptions.volatility))
+
+        # Approximate correlation drag (higher positive correlation -> less diversification benefit).
+        simulation_results = simulation_results - (max(0.0, assumptions.correlation) * assumptions.volatility * 0.05)
 
         # Adjust simulation results based on time horizon
-        simulation_results_adjusted = simulation_results * self.time_horizon_years
+        nominal_adjusted = simulation_results * self.time_horizon_years
+        real_adjusted = nominal_adjusted - (assumptions.inflation_rate * self.time_horizon_years)
+        net_cashflow_per_year = (
+            assumptions.periodic_contribution * assumptions.contribution_frequency_per_year
+            - assumptions.periodic_withdrawal * assumptions.withdrawal_frequency_per_year
+        )
+        cashflow_impact = net_cashflow_per_year / max(self.available_investment, 1.0)
+        simulation_results_adjusted = real_adjusted + cashflow_impact
+
+        self._persist_simulation_run(assumptions.to_dict())
         logger.info(f"Monte Carlo simulation completed with {num_simulations} simulations.")
         return simulation_results_adjusted
+
+    def _build_simulation_payload(self, simulation_results):
+        assumptions = {
+            "horizon_years": int(self.time_horizon_years),
+            "sampling_method": "historical_bootstrap",
+            "random_seed": 42,
+            "risk_tolerance": self.risk_tolerance,
+        }
+
+        if is_enabled("simulation_assumptions_v1"):
+            return build_decision_grade_simulation_result_v1(simulation_results, assumptions)
+
+        return build_simulation_result_v1(simulation_results)
 
     def summarize_simulation(self, simulation_results):
         """
@@ -284,14 +439,7 @@ class PortfolioOptimizer:
         :param simulation_results: Numpy array of simulation results
         :return: Dictionary containing summary statistics
         """
-        summary = {
-            'Mean Return': np.mean(simulation_results),
-            'Median Return': np.median(simulation_results),
-            'Standard Deviation': np.std(simulation_results),
-            'Minimum Return': np.min(simulation_results),
-            'Maximum Return': np.max(simulation_results),
-            '5th Percentile': np.percentile(simulation_results, 5),
-            '95th Percentile': np.percentile(simulation_results, 95)
-        }
+        simulation_payload = self._build_simulation_payload(simulation_results)
+        summary = adapt_internal_shape_to_legacy_output_fields(simulation_payload)
         logger.info(f"Simulation Summary: {summary}")
         return summary
