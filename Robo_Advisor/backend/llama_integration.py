@@ -2,7 +2,8 @@
 import os
 import logging
 import shutil
-from typing import List, Optional, Union
+import json
+from typing import Any, Dict, List, Optional, Union
 from dotenv import load_dotenv
 from llama_index.core import (
     VectorStoreIndex, 
@@ -14,10 +15,14 @@ from llama_index.core import (
 )
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core.node_parser import SentenceSplitter
-from openai import RateLimitError
+from openai import OpenAI, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
 import hashlib
 from .data_fetcher import DataFetcher
+from .prompt_framework.system_prompt import SYSTEM_PROMPT
+from .prompt_framework.templates import build_symbol_analysis_prompt
+from .prompt_framework.output_parser import parse_or_repair_json
+from .prompt_framework.contracts import SchemaValidationError, validate_symbol_response
 
 # Load environment variables from .env file
 load_dotenv()
@@ -226,6 +231,65 @@ class LLamaQuery:
         except Exception as e:
             logger.error(f"Error during query: {e}")
             return f"An error occurred: {str(e)}"
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_random_exponential(min=1, max=60),
+        retry=retry_if_exception_type(RateLimitError)
+    )
+    def compose_symbol_response(self, query: str, context: Any) -> Dict[str, Any]:
+        """Compose a structured symbol-analysis response.
+
+        This path is separate from document Q&A and uses the prompt framework
+        plus schema validation to enforce evidence tags.
+        """
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("Query must be a non-empty string.")
+
+        try:
+            client = OpenAI()
+            user_prompt = build_symbol_analysis_prompt(query=query, context=context)
+
+            completion = client.chat.completions.create(
+                model=os.getenv("SYMBOL_RESPONSE_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2,
+                response_format={"type": "json_object"},
+            )
+
+            raw_content = completion.choices[0].message.content or "{}"
+            parsed_payload = parse_or_repair_json(raw_content)
+            validated_payload = validate_symbol_response(parsed_payload)
+
+            return validated_payload
+
+        except RateLimitError:
+            logger.error("Rate limit exceeded during symbol response composition")
+            return {
+                "answer": "Rate limit exceeded. Please try again later.",
+                "claims": [],
+            }
+        except SchemaValidationError as e:
+            logger.error(f"Schema validation failed: {e}")
+            return {
+                "answer": f"Structured response validation failed: {e}",
+                "claims": [],
+            }
+        except json.JSONDecodeError as e:
+            logger.error(f"Could not parse JSON model output: {e}")
+            return {
+                "answer": "Model response could not be parsed as JSON.",
+                "claims": [],
+            }
+        except Exception as e:
+            logger.error(f"Error composing symbol response: {e}")
+            return {
+                "answer": f"An error occurred: {str(e)}",
+                "claims": [],
+            }
 
     def force_rebuild(self):
         """Force rebuild the index."""
