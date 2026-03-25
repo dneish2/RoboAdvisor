@@ -17,11 +17,16 @@ import plotly.express as px
 import plotly.graph_objs as go
 
 # Backend Module Imports
-from backend.models import UserProfile, normalize_decision_profile
-from backend.portfolio_optimizer import PortfolioOptimizer
+from backend.models import UserProfile
+from backend.portfolio_optimizer import PortfolioOptimizer, map_legacy_ui_to_simulation_assumptions
 from backend.data_fetcher import DataFetcher
 from backend.llama_integration import LLamaQuery
 from backend.options_visualizer import OptionsVisualizer
+from backend.feature_flags import is_enabled
+from backend.versioned_payloads import (
+    adapt_internal_shape_to_legacy_output_fields,
+    adapt_legacy_input_to_internal_shape,
+)
 
 # Additional Imports
 import pyttsx3  # For Text-to-Speech
@@ -285,17 +290,14 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
             st.error(str(ve))
             return
 
-    decision_profile = normalize_decision_profile(
-        user_profile.get('decision_profile'),
-        legacy_risk_tolerance=user_profile.get('risk_tolerance', 'Medium'),
-        legacy_goals=goals,
-    )
-    user_profile['decision_profile'] = {
-        'objective_preset': decision_profile.objective_preset,
-        'risk_stance': decision_profile.risk_stance,
-        'success_definition': decision_profile.success_definition,
-        'thesis_summary': decision_profile.thesis_summary,
-    }
+    # Build the internal request schema while preserving the legacy shape
+    # for current components/endpoints in this rollout phase.
+    internal_request = adapt_legacy_input_to_internal_shape(user_profile)
+    if is_enabled("decision_profile_v1"):
+        logger.info(
+            "decision_profile_v1 enabled with schema '%s'.",
+            internal_request.get("schema_version"),
+        )
 
     # Load the investment thesis
     investment_thesis = data_fetcher.load_investment_thesis()
@@ -305,7 +307,15 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
 
     # Initialize PortfolioOptimizer with user profile, investment thesis, and max_holdings
     try:
-        optimizer = PortfolioOptimizer(user_profile, investment_thesis, max_holdings=max_holdings)
+        simulation_inputs = user_profile.get("simulation_inputs", {}) if isinstance(user_profile, dict) else {}
+        simulation_assumptions = map_legacy_ui_to_simulation_assumptions(user_profile, simulation_inputs)
+        optimizer = PortfolioOptimizer(
+            user_profile,
+            investment_thesis,
+            max_holdings=max_holdings,
+            simulation_assumptions=simulation_assumptions,
+            random_seed=42,
+        )
     except ValueError as ve:
         st.error(f"Portfolio optimization initialization failed: {ve}")
         return
@@ -322,6 +332,9 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
         # Inform the user about the limited holdings
         if len(optimizer.assets) < max_holdings:
             st.warning(f"Only {len(optimizer.assets)} assets were available and included in the portfolio based on your risk tolerance.")
+        if optimizer.simulation_warnings:
+            for warning in optimizer.simulation_warnings:
+                st.warning(f"Simulation guardrail: {warning}")
         # Display the portfolio, expected return, and simulation results
         # Display only the portfolio, hiding other data
         st.write("Optimized Portfolio:")
@@ -378,6 +391,14 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
         st.plotly_chart(fig_sim)
     except Exception as e:
         st.error(f"Failed to plot Monte Carlo simulation results: {e}")
+
+    # Backward-compatible projection from internal simulation payload.
+    if getattr(optimizer, "last_simulation_payload", None):
+        legacy_sim_summary = adapt_internal_shape_to_legacy_output_fields(optimizer.last_simulation_payload)
+        if is_enabled("recommendation_loop_v1"):
+            legacy_sim_summary["Recommendation Loop"] = "v1_enabled"
+        st.subheader("Simulation Summary (Legacy-Compatible)")
+        st.json(legacy_sim_summary)
 
     # Text-to-Speech for Portfolio Allocation
     if tts_engine:
