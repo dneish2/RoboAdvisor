@@ -22,8 +22,8 @@ class DecisionProfile:
 
 
 @dataclass(frozen=True)
-class SimulationAssumptions:
-    """Deterministic defaults derived from a DecisionProfile."""
+class DecisionSimulationConfig:
+    """Deterministic simulation defaults derived from a DecisionProfile."""
 
     num_simulations: int
     horizon_multiplier: float
@@ -32,25 +32,25 @@ class SimulationAssumptions:
 
 
 _OBJECTIVE_BASELINES = {
-    "capital_preservation": SimulationAssumptions(
+    "capital_preservation": DecisionSimulationConfig(
         num_simulations=5000,
         horizon_multiplier=0.9,
         return_bias_multiplier=0.9,
         tail_event_floor=-0.08,
     ),
-    "balanced_growth": SimulationAssumptions(
+    "balanced_growth": DecisionSimulationConfig(
         num_simulations=10000,
         horizon_multiplier=1.0,
         return_bias_multiplier=1.0,
         tail_event_floor=-0.12,
     ),
-    "aggressive_growth": SimulationAssumptions(
+    "aggressive_growth": DecisionSimulationConfig(
         num_simulations=20000,
         horizon_multiplier=1.1,
         return_bias_multiplier=1.15,
         tail_event_floor=-0.2,
     ),
-    "income": SimulationAssumptions(
+    "income": DecisionSimulationConfig(
         num_simulations=8000,
         horizon_multiplier=1.0,
         return_bias_multiplier=0.95,
@@ -59,9 +59,9 @@ _OBJECTIVE_BASELINES = {
 }
 
 _RISK_ADJUSTMENTS = {
-    "low": SimulationAssumptions(2000, 0.95, 0.9, -0.06),
-    "medium": SimulationAssumptions(0, 1.0, 1.0, -0.1),
-    "high": SimulationAssumptions(5000, 1.1, 1.1, -0.18),
+    "low": DecisionSimulationConfig(2000, 0.95, 0.9, -0.06),
+    "medium": DecisionSimulationConfig(0, 1.0, 1.0, -0.1),
+    "high": DecisionSimulationConfig(5000, 1.1, 1.1, -0.18),
 }
 
 
@@ -197,7 +197,7 @@ def derive_decision_profile_from_legacy(legacy_risk_tolerance: str, goals: list)
     )
 
 
-def decision_profile_to_simulation_assumptions(profile: DecisionProfile) -> SimulationAssumptions:
+def decision_profile_to_simulation_assumptions(profile: DecisionProfile) -> DecisionSimulationConfig:
     """Deterministic mapping from DecisionProfile to simulation defaults."""
     objective = profile.objective_preset.strip().lower()
     risk = profile.risk_stance.strip().lower()
@@ -205,7 +205,7 @@ def decision_profile_to_simulation_assumptions(profile: DecisionProfile) -> Simu
     objective_defaults = _OBJECTIVE_BASELINES.get(objective, _OBJECTIVE_BASELINES["balanced_growth"])
     risk_delta = _RISK_ADJUSTMENTS.get(risk, _RISK_ADJUSTMENTS["medium"])
 
-    return SimulationAssumptions(
+    return DecisionSimulationConfig(
         num_simulations=max(1000, objective_defaults.num_simulations + risk_delta.num_simulations),
         horizon_multiplier=objective_defaults.horizon_multiplier * risk_delta.horizon_multiplier,
         return_bias_multiplier=objective_defaults.return_bias_multiplier * risk_delta.return_bias_multiplier,

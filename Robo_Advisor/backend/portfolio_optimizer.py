@@ -9,14 +9,12 @@ import json
 import os
 from copy import deepcopy
 from datetime import datetime, timezone
+from time import perf_counter
 
 from dataclasses import dataclass, field
 
-from .feature_flags import is_enabled
 from .versioned_payloads import (
-    adapt_internal_shape_to_legacy_output_fields,
     build_decision_grade_simulation_result_v1,
-    build_simulation_result_v1,
 )
 
 from .models import decision_profile_to_simulation_assumptions, normalize_decision_profile
@@ -36,6 +34,8 @@ class SimulationAssumptions:
     withdrawal_frequency_per_year: int
     rebalance_cadence: str
     scenario_toggles: dict = field(default_factory=dict)
+    num_simulations: int = 10_000
+    return_bias_multiplier: float = 1.0
 
     def to_dict(self):
         return {
@@ -49,6 +49,8 @@ class SimulationAssumptions:
             "withdrawal_frequency_per_year": self.withdrawal_frequency_per_year,
             "rebalance_cadence": self.rebalance_cadence,
             "scenario_toggles": deepcopy(self.scenario_toggles),
+            "num_simulations": self.num_simulations,
+            "return_bias_multiplier": self.return_bias_multiplier,
         }
 
 
@@ -85,6 +87,8 @@ def map_legacy_ui_to_simulation_assumptions(user_profile, simulation_inputs=None
             "inflation_shock": False,
             "liquidity_crunch": False,
         },
+        "num_simulations": 10_000,
+        "return_bias_multiplier": 1.0,
     }
 
     merged = deepcopy(default_assumptions)
@@ -153,7 +157,64 @@ class PortfolioOptimizer:
         self.asset_data = self.fetch_asset_data()
         self.expected_returns = self.calculate_expected_returns()
         self.cov_matrix = self.asset_data.pct_change().dropna().cov().values
-        self.last_simulation_payload = None
+
+    def validate_simulation_assumptions(self):
+        """Validate assumption hard bounds and record softer-confidence warnings."""
+        assumptions = self.simulation_assumptions
+        if not hasattr(self, "simulation_warnings") or self.simulation_warnings is None:
+            self.simulation_warnings = []
+        else:
+            self.simulation_warnings.clear()
+
+        hard_bounds = {
+            "expected_return": (-0.50, 0.50),
+            "volatility": (0.0, 1.0),
+            "inflation_rate": (-0.10, 0.30),
+            "correlation": (-1.0, 1.0),
+            "contribution_frequency_per_year": (1, 365),
+            "withdrawal_frequency_per_year": (1, 365),
+            "num_simulations": (100, 1_000_000),
+        }
+
+        for field_name, (lower, upper) in hard_bounds.items():
+            value = getattr(assumptions, field_name)
+            if value < lower or value > upper:
+                raise ValueError(
+                    f"Simulation assumption '{field_name}' is out of bounds: "
+                    f"{value} (expected between {lower} and {upper})."
+                )
+
+        if assumptions.expected_return > 0.14:
+            self.simulation_warnings.append("Expected return is optimistic for long-run planning.")
+        if assumptions.volatility > 0.30:
+            self.simulation_warnings.append("Volatility is high; simulation confidence may be reduced.")
+        if assumptions.inflation_rate > 0.06:
+            self.simulation_warnings.append("Inflation assumption is elevated relative to baseline.")
+        if assumptions.correlation > 0.80:
+            self.simulation_warnings.append("High correlation weakens diversification benefits.")
+        net_yearly_cashflow = (
+            assumptions.periodic_contribution * assumptions.contribution_frequency_per_year
+            - assumptions.periodic_withdrawal * assumptions.withdrawal_frequency_per_year
+        )
+        available_investment = float(getattr(self, "available_investment", 0.0) or 0.0)
+        if available_investment > 0 and abs(net_yearly_cashflow) > available_investment * 0.5:
+            self.simulation_warnings.append("Net annual cashflow is large relative to current investment base.")
+
+    def _persist_simulation_run(self, assumptions: dict):
+        """Persist latest simulation assumptions for lightweight observability."""
+        payload = {
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "assumptions": assumptions,
+            "time_horizon_years": int(self.time_horizon_years),
+            "risk_tolerance": self.risk_tolerance,
+        }
+        path = os.path.join("storage", "last_simulation_run.json")
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+        except Exception as exc:
+            logger.warning(f"Unable to persist simulation run metadata: {exc}")
 
     def get_time_horizon(self):
         """
@@ -215,7 +276,6 @@ class PortfolioOptimizer:
             })
             simulation_results = self.run_monte_carlo(allocations)
             expected_return = np.mean(simulation_results)
-            self.last_simulation_payload = self._build_simulation_payload(simulation_results)
             portfolio['Investment'] = portfolio['Allocation'] * self.available_investment
             logger.info(f"Portfolio allocation (single asset): {portfolio}")
             return portfolio, expected_return, simulation_results
@@ -246,7 +306,6 @@ class PortfolioOptimizer:
             # Monte Carlo Simulation for expected returns
             simulation_results = self.run_monte_carlo(allocations)
             expected_return = np.mean(simulation_results)
-            self.last_simulation_payload = self._build_simulation_payload(simulation_results)
 
             # Calculate final portfolio value based on available investment
             portfolio['Investment'] = portfolio['Allocation'] * self.available_investment
@@ -280,6 +339,7 @@ class PortfolioOptimizer:
             # Use the special ticker if it exists, else use the original ticker
             ticker = special_tickers.get(asset, asset)
             logger.info(f"Processing asset: {asset} (Ticker: {ticker})")
+            fetch_start = perf_counter()
 
             stock = yf.Ticker(ticker)
 
@@ -298,6 +358,7 @@ class PortfolioOptimizer:
                 data[asset] = hist['Close']
                 valid_assets.append(asset)  # Only add asset if data is successfully fetched
                 logger.info(f"Successfully fetched data for {asset}")
+                logger.info("yfinance history fetch for %s took %.3fs", asset, perf_counter() - fetch_start)
 
             except Exception as e:
                 logger.error(f"Error fetching historical data for {asset}: {e}")
@@ -382,6 +443,7 @@ class PortfolioOptimizer:
         if num_simulations is None:
             num_simulations = self.simulation_assumptions.num_simulations
 
+        monte_carlo_start = perf_counter()
         returns = self.asset_data.pct_change().dropna().values
         portfolio_returns = np.dot(returns, allocations)
         rng = np.random.default_rng(self.random_seed)
@@ -416,7 +478,11 @@ class PortfolioOptimizer:
         simulation_results_adjusted = real_adjusted + cashflow_impact
 
         self._persist_simulation_run(assumptions.to_dict())
-        logger.info(f"Monte Carlo simulation completed with {num_simulations} simulations.")
+        logger.info(
+            "Monte Carlo simulation completed with %s simulations in %.3fs.",
+            num_simulations,
+            perf_counter() - monte_carlo_start,
+        )
         return simulation_results_adjusted
 
     def _build_simulation_payload(self, simulation_results):
@@ -426,20 +492,4 @@ class PortfolioOptimizer:
             "random_seed": 42,
             "risk_tolerance": self.risk_tolerance,
         }
-
-        if is_enabled("simulation_assumptions_v1"):
-            return build_decision_grade_simulation_result_v1(simulation_results, assumptions)
-
-        return build_simulation_result_v1(simulation_results)
-
-    def summarize_simulation(self, simulation_results):
-        """
-        Generate summary statistics from simulation results.
-
-        :param simulation_results: Numpy array of simulation results
-        :return: Dictionary containing summary statistics
-        """
-        simulation_payload = self._build_simulation_payload(simulation_results)
-        summary = adapt_internal_shape_to_legacy_output_fields(simulation_payload)
-        logger.info(f"Simulation Summary: {summary}")
-        return summary
+        return build_decision_grade_simulation_result_v1(simulation_results, assumptions)

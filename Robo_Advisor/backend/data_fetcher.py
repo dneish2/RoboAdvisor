@@ -19,6 +19,24 @@ class DataFetcher:
             if thesis_df.empty:
                 logger.warning("Investment thesis file is empty.")
                 return pd.DataFrame()
+            required_columns = {"Ticker", "Theme", "RiskLevel"}
+            if not required_columns.issubset(set(thesis_df.columns)):
+                logger.error("Investment thesis missing required columns: %s", sorted(required_columns))
+                return pd.DataFrame()
+
+            # Normalize + de-duplicate tickers while preserving first occurrence order.
+            thesis_df["Ticker"] = thesis_df["Ticker"].astype(str).str.upper().str.strip()
+            thesis_df["Theme"] = thesis_df["Theme"].astype(str).str.strip()
+            thesis_df["RiskLevel"] = thesis_df["RiskLevel"].astype(str).str.strip().str.capitalize()
+
+            seen_tickers = set()
+            keep_mask = []
+            for ticker in thesis_df["Ticker"]:
+                is_new = ticker not in seen_tickers
+                keep_mask.append(is_new)
+                if is_new:
+                    seen_tickers.add(ticker)
+            thesis_df = thesis_df.loc[keep_mask].reset_index(drop=True)
             return thesis_df
         except Exception as e:
             logger.error(f"Error loading investment thesis: {e}")
