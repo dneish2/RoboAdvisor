@@ -22,11 +22,6 @@ from backend.portfolio_optimizer import PortfolioOptimizer, map_legacy_ui_to_sim
 from backend.data_fetcher import DataFetcher
 from backend.llama_integration import LLamaQuery
 from backend.options_visualizer import OptionsVisualizer
-from backend.feature_flags import is_enabled
-from backend.versioned_payloads import (
-    adapt_internal_shape_to_legacy_output_fields,
-    adapt_legacy_input_to_internal_shape,
-)
 
 # Additional Imports
 import pyttsx3  # For Text-to-Speech
@@ -42,16 +37,16 @@ logger = logging.getLogger(__name__)
 # Load Environment Variables
 load_dotenv(override=True)
 
-# Initialize NVIDIA NIM Client
+# Initialize NVIDIA NIM Client (optional for non-LLM modes)
 api_key = os.getenv("NIM_API_KEY")
-if not api_key:
-    st.error("API Key not found. Please ensure your .env file contains a valid NIM_API_KEY.")
-    st.stop()
-
-nim_client = OpenAI(
-    base_url="https://integrate.api.nvidia.com/v1",
-    api_key=api_key  # Use the loaded API key
-)
+nim_client = None
+if api_key:
+    nim_client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=api_key
+    )
+else:
+    logger.warning("NIM_API_KEY not found. LLM-powered features will be disabled.")
 
 # Helper Functions
 
@@ -300,15 +295,6 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
             st.error(str(ve))
             return
 
-    # Build the internal request schema while preserving the legacy shape
-    # for current components/endpoints in this rollout phase.
-    internal_request = adapt_legacy_input_to_internal_shape(user_profile)
-    if is_enabled("decision_profile_v1"):
-        logger.info(
-            "decision_profile_v1 enabled with schema '%s'.",
-            internal_request.get("schema_version"),
-        )
-
     # Load the investment thesis
     investment_thesis = data_fetcher.load_investment_thesis()
     if investment_thesis.empty:
@@ -402,14 +388,6 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
     except Exception as e:
         st.error(f"Failed to plot Monte Carlo simulation results: {e}")
 
-    # Backward-compatible projection from internal simulation payload.
-    if getattr(optimizer, "last_simulation_payload", None):
-        legacy_sim_summary = adapt_internal_shape_to_legacy_output_fields(optimizer.last_simulation_payload)
-        if is_enabled("recommendation_loop_v1"):
-            legacy_sim_summary["Recommendation Loop"] = "v1_enabled"
-        st.subheader("Simulation Summary (Legacy-Compatible)")
-        st.json(legacy_sim_summary)
-
     # Text-to-Speech for Portfolio Allocation
     if tts_engine:
         if st.button("Read Portfolio Allocation"):
@@ -474,6 +452,8 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
                 st.warning("Unable to generate portfolio summary at this time.")
         except Exception as e:
             st.warning(f"Could not generate portfolio summary: {e}")
+    else:
+        st.info("LLM portfolio summary disabled: set NIM_API_KEY to enable AI-generated narrative.")
 
     # Portfolio Growth Over Time
     st.header("Portfolio Growth Over Time")
@@ -519,6 +499,9 @@ def display_portfolio(user_profile, nim_client, data_fetcher, max_holdings=4):
 
 def query_llama():
     st.header("Ask About Companies")
+    if nim_client is None:
+        st.info("LLM chat is currently unavailable. Set NIM_API_KEY to enable this panel.")
+        return
     if "chat_query_input" not in st.session_state:
         st.session_state.chat_query_input = ""
 
@@ -764,6 +747,9 @@ def visualize_history(data_fetcher, nim_client):
 
                             # Button to get strategic advice based on history
                             if st.button("Get Strategic Advice Based on History"):
+                                if nim_client is None:
+                                    st.warning("NIM_API_KEY not configured. Strategic advisor is unavailable.")
+                                    return
                                 # Call NVIDIA NIM API to get strategic advice
                                 try:
                                     advisor_completion_history = nim_client.chat.completions.create(
@@ -795,26 +781,7 @@ def visualize_history(data_fetcher, nim_client):
             else:
                 st.warning("No expiration dates available in the selected period.")
 
-def debug_environment():
-    st.header("🛠️ Debugging Environment")
-    cwd = os.getcwd()
-    st.write(f"**Current Working Directory:** `{cwd}`")
-
-    dirs_to_list = ['backend', 'storage', 'cache', 'data']
-    for directory in dirs_to_list:
-        path = os.path.join(cwd, directory)
-        st.write(f"**Contents of `{directory}/`:**")
-        if os.path.exists(path):
-            contents = os.listdir(path)
-            if contents:
-                st.write(contents)
-            else:
-                st.write("Directory is empty.")
-        else:
-            st.write("Directory does not exist.")
-
 def main():
-    debug_environment()
     st.sidebar.title("Robo-Advisor")
     app_mode = st.sidebar.selectbox(
         "Choose the app mode",
@@ -859,6 +826,8 @@ def main():
     elif app_mode == "Instrument Scanner":
         visualize_options(data_fetcher)  # Removed nim_client
     elif app_mode == "Instrument History":
+        if nim_client is None:
+            st.warning("NIM_API_KEY not configured. Strategic advisor is disabled in Instrument History mode.")
         visualize_history(data_fetcher, nim_client)  # Pass data_fetcher and nim_client to visualize_history
     else:
         st.error("Invalid app mode selected.")
